@@ -1,10 +1,13 @@
+# Example: Tkinter GUI outline
 import tkinter as tk
 from tkinter import messagebox
-import json
+import sqlite3
+import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
+import os
 
-data_file = "bmi_data.json"
+data_file = "bmi_data.db"
 
 
 def calculate_bmi(weight, height):
@@ -23,16 +26,84 @@ def get_category(bmi):
 
 
 def save_data(user, bmi_record):
+    # Create database and table if they don't exist
+    conn = sqlite3.connect(data_file)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bmi_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user TEXT NOT NULL,
+            date DATE NOT NULL,
+            weight REAL NOT NULL,
+            height REAL NOT NULL,
+            bmi REAL NOT NULL,
+            category TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Insert new record
+    cursor.execute('''
+        INSERT INTO bmi_records (user, date, weight, height, bmi, category)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user, bmi_record['date'], bmi_record['weight'], 
+          bmi_record['height'], bmi_record['bmi'], bmi_record['category']))
+    
+    conn.commit()
+    conn.close()
+
+
+def view_all_data():
     try:
-        with open(data_file, "r") as file:
-            data = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
+        conn = sqlite3.connect(data_file)
+        df = pd.read_sql_query("SELECT * FROM bmi_records ORDER BY date, created_at", conn)
+        conn.close()
+    except sqlite3.Error as e:
+        messagebox.showerror("Error", f"Database error: {str(e)}")
+        return
+    except Exception as e:
+        messagebox.showerror("Error", f"No data found: {str(e)}")
+        return
 
-    data.setdefault(user, []).append(bmi_record)
+    if df.empty:
+        messagebox.showinfo("Info", "No BMI data found in database.")
+        return
 
-    with open(data_file, "w") as file:
-        json.dump(data, file, indent=4)
+    # Create a formatted string of all data
+    data_text = "🗃️ All BMI Records in Database:\n\n"
+    
+    for _, row in df.iterrows():
+        data_text += f"ID: {row['id']} | User: {row['user']}\n"
+        data_text += f"Date: {row['date']} | Weight: {row['weight']}kg | Height: {row['height']}m\n"
+        data_text += f"BMI: {row['bmi']} | Category: {row['category']}\n"
+        data_text += f"Created: {row['created_at']}\n"
+        data_text += "-" * 50 + "\n"
+    
+    # Create a new window to display the data
+    data_window = tk.Toplevel(root)
+    data_window.title("Database Records")
+    data_window.geometry("600x400")
+    data_window.configure(bg="#2c3e50")
+    
+    # Add scrollable text widget
+    text_frame = tk.Frame(data_window, bg="#2c3e50")
+    text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    
+    scrollbar = tk.Scrollbar(text_frame)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    text_widget = tk.Text(text_frame, 
+                         yscrollcommand=scrollbar.set,
+                         bg="#ecf0f1", 
+                         fg="#2c3e50",
+                         font=("Courier", 10),
+                         wrap=tk.WORD)
+    text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.config(command=text_widget.yview)
+    
+    text_widget.insert(tk.END, data_text)
+    text_widget.config(state=tk.DISABLED)
 
 
 def show_statistics(user):
@@ -41,19 +112,25 @@ def show_statistics(user):
         return
     
     try:
-        with open("bmi_data.json") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        messagebox.showerror("Error", "No data file found!")
+        conn = sqlite3.connect(data_file)
+        df = pd.read_sql_query(
+            "SELECT * FROM bmi_records WHERE user = ? ORDER BY date, created_at", 
+            conn, params=[user]
+        )
+        conn.close()
+    except sqlite3.Error as e:
+        messagebox.showerror("Error", f"Database error: {str(e)}")
+        return
+    except Exception as e:
+        messagebox.showerror("Error", f"No data found: {str(e)}")
         return
 
-    records = data.get(user)
-    if not records:
+    if df.empty:
         messagebox.showinfo("Info", f"No BMI data found for user '{user}'.")
         return
 
-    bmis = [r["bmi"] for r in records]
-    categories = [r["category"] for r in records]
+    bmis = df['bmi'].tolist()
+    categories = df['category'].tolist()
     
     # Calculate statistics
     avg_bmi = sum(bmis) / len(bmis)
@@ -97,20 +174,26 @@ def plot_user_bmi(user):
         return
     
     try:
-        with open("bmi_data.json") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        messagebox.showerror("Error", "No data file found!")
+        conn = sqlite3.connect(data_file)
+        df = pd.read_sql_query(
+            "SELECT * FROM bmi_records WHERE user = ? ORDER BY date, created_at", 
+            conn, params=[user]
+        )
+        conn.close()
+    except sqlite3.Error as e:
+        messagebox.showerror("Error", f"Database error: {str(e)}")
+        return
+    except Exception as e:
+        messagebox.showerror("Error", f"No data found: {str(e)}")
         return
 
-    records = data.get(user)
-    if not records:
+    if df.empty:
         messagebox.showinfo("Info", f"No BMI data found for user '{user}'.")
         return
 
-    dates = [r["date"] for r in records]
-    bmis = [r["bmi"] for r in records]
-    categories = [r["category"] for r in records]
+    dates = df['date'].tolist()
+    bmis = df['bmi'].tolist()
+    categories = df['category'].tolist()
 
     # Create figure with larger size
     plt.figure(figsize=(12, 8))
@@ -191,7 +274,7 @@ def on_calculate():
 # GUI Setup
 root = tk.Tk()
 root.title("BMI Calculator")
-root.geometry("500x450")
+root.geometry("400x500")
 root.configure(bg="#2c3e50")
 root.resizable(False, False)
 
@@ -289,7 +372,7 @@ result_label.grid(row=5, column=0, columnspan=2, pady=(0, 20))
 
 # Buttons frame for better layout
 button_frame = tk.Frame(root, bg="#2c3e50")
-button_frame.grid(row=6, column=0, columnspan=2, pady=(0, 20), padx=20, sticky="ew")
+button_frame.grid(row=6, column=0, columnspan=2, pady=(0, 10), padx=20, sticky="ew")
 button_frame.columnconfigure(0, weight=1)
 button_frame.columnconfigure(1, weight=1)
 
@@ -322,5 +405,20 @@ stats_btn = tk.Button(button_frame,
                       activebackground="#8e44ad",
                       activeforeground="white")
 stats_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+
+# View Database Button
+view_db_btn = tk.Button(root,
+                        text="🗃️ View Database",
+                        command=view_all_data,
+                        font=button_font,
+                        bg="#34495e",
+                        fg="white",
+                        relief="flat",
+                        bd=0,
+                        pady=8,
+                        cursor="hand2",
+                        activebackground="#2c3e50",
+                        activeforeground="white")
+view_db_btn.grid(row=7, column=0, columnspan=2, pady=(0, 20), padx=20, sticky="ew")
 
 root.mainloop()
