@@ -6,7 +6,6 @@ import string
 import pyperclip
 import re
 from datetime import datetime
-#hello
 
 class PasswordGenerator:
 
