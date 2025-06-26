@@ -6,7 +6,7 @@ import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 import os
-#hello
+
 data_file = "bmi_data.db"
 
 
